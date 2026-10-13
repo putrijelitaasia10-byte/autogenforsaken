@@ -1,0 +1,435 @@
+-- Forsaken | Auto Generator (mini GUI with repair speed slider)
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local UIS = game:GetService("UserInputService")
+
+local plr = Players.LocalPlayer
+local WS = workspace
+
+local enabled = false
+local speedUp = false
+local isFixing = false
+local rng = Random.new()
+
+local CONFIG = {
+    Distance = 6.7,
+    Cooldown = 4,
+    MinCooldown = 1.5,
+    MaxCooldown = 15,
+    Step = 0.25,
+    NearCheckDist = 32,
+    Variance = 0.1,
+}
+
+local GameMap
+local function getMap()
+    if GameMap and GameMap.Parent then return GameMap end
+    local map = WS:FindFirstChild("Map")
+    local ingame = map and map:FindFirstChild("Ingame")
+    GameMap = ingame and ingame:FindFirstChild("Map")
+    return GameMap
+end
+
+local function isPlayerNear()
+    local char = plr.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v ~= plr and v.Character then
+            local r = v.Character:FindFirstChild("HumanoidRootPart")
+            if r and (r.Position - root.Position).Magnitude < CONFIG.NearCheckDist then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function findGenerators()
+    local map = getMap()
+    if not map then return {} end
+    local out = {}
+    local ok, q = pcall(function()
+        return map:QueryDescendants("Model#Generator:has(#Main)")
+    end)
+    if ok and q and #q > 0 then
+        for _, v in ipairs(q) do table.insert(out, v) end
+        return out
+    end
+    for _, d in ipairs(map:GetDescendants()) do
+        if d:IsA("Model") and d.Name == "Generator" and d:FindFirstChild("Main") then
+            table.insert(out, d)
+        end
+    end
+    return out
+end
+
+local function puzzleActive()
+    local pg = plr.PlayerGui
+    return pg and pg:FindFirstChild("PuzzleUI") ~= nil
+end
+
+local function getCooldown()
+    local base = CONFIG.Cooldown
+    if speedUp and not isPlayerNear() and base > 2 then
+        base = CONFIG.MinCooldown
+    end
+    return rng:NextNumber(base - CONFIG.Variance * base, base + CONFIG.Variance * base)
+end
+
+local function fixGenerator(gen)
+    local char = plr.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root or root.Anchored then return end
+
+    local remotes = gen:FindFirstChild("Remotes")
+    local progress = gen:FindFirstChild("Progress")
+    if not remotes or not progress then return end
+    local remote = remotes:FindFirstChildOfClass("RemoteEvent")
+    if not remote then return end
+
+    if not puzzleActive() then return end
+
+    isFixing = true
+    pcall(function()
+        while enabled do
+            if not gen.Parent then break end
+            if not root.Parent then break end
+            local main = gen:FindFirstChild("Main")
+            if not main then break end
+            if (root.Position - main.Position).Magnitude > CONFIG.Distance then break end
+            if not puzzleActive() then break end
+            if root.Anchored then break end
+
+            task.wait(getCooldown())
+
+            if not enabled then break end
+            if not gen.Parent then break end
+            if not puzzleActive() then break end
+
+            pcall(function() remote:FireServer() end)
+        end
+    end)
+    isFixing = false
+end
+
+task.spawn(function()
+    while task.wait() do
+        if not enabled or isFixing then continue end
+        local char = plr.Character
+        if not char then continue end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root or root.Anchored then continue end
+        if not puzzleActive() then continue end
+
+        for _, gen in ipairs(findGenerators()) do
+            local main = gen:FindFirstChild("Main")
+            if main and (main.Position - root.Position).Magnitude < CONFIG.Distance then
+                task.spawn(fixGenerator, gen)
+                break
+            end
+        end
+    end
+end)
+
+plr.CharacterAdded:Connect(function()
+    isFixing = false
+end)
+
+-- GUI
+for _, g in ipairs(CoreGui:GetChildren()) do
+    if g.Name == "F_AG" then g:Destroy() end
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "F_AG"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+pcall(function() gui.Parent = CoreGui end)
+if not gui.Parent then gui.Parent = plr:WaitForChild("PlayerGui") end
+
+local pill = Instance.new("TextButton")
+pill.Size = UDim2.new(0, 44, 0, 44)
+pill.Position = UDim2.new(0, 20, 0, 320)
+pill.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+pill.Text = "G"
+pill.TextColor3 = Color3.fromRGB(200, 200, 220)
+pill.TextSize = 18
+pill.Font = Enum.Font.GothamBold
+pill.BorderSizePixel = 0
+pill.AutoButtonColor = false
+pill.Parent = gui
+Instance.new("UICorner", pill).CornerRadius = UDim.new(1, 0)
+local ps = Instance.new("UIStroke", pill)
+ps.Color = Color3.fromRGB(60, 60, 75)
+ps.Thickness = 1
+
+local panel = Instance.new("Frame")
+panel.Size = UDim2.new(0, 220, 0, 178)
+panel.Position = pill.Position
+panel.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+panel.BackgroundTransparency = 0.08
+panel.BorderSizePixel = 0
+panel.Visible = false
+panel.Active = true
+panel.Parent = gui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
+local pstr = Instance.new("UIStroke", panel)
+pstr.Color = Color3.fromRGB(60, 60, 75)
+pstr.Thickness = 1
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -40, 0, 22)
+title.Position = UDim2.new(0, 10, 0, 4)
+title.BackgroundTransparency = 1
+title.Text = "Auto Generator"
+title.TextColor3 = Color3.fromRGB(220, 220, 230)
+title.TextSize = 12
+title.Font = Enum.Font.GothamMedium
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = panel
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 20, 0, 20)
+closeBtn.Position = UDim2.new(1, -24, 0, 3)
+closeBtn.BackgroundTransparency = 1
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(180, 180, 190)
+closeBtn.TextSize = 14
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = panel
+
+local genToggle = Instance.new("TextButton")
+genToggle.Size = UDim2.new(1, -16, 0, 26)
+genToggle.Position = UDim2.new(0, 8, 0, 28)
+genToggle.BackgroundColor3 = Color3.fromRGB(32, 32, 40)
+genToggle.BorderSizePixel = 0
+genToggle.Text = "Auto Gen: OFF"
+genToggle.TextColor3 = Color3.fromRGB(200, 200, 210)
+genToggle.TextSize = 12
+genToggle.Font = Enum.Font.Gotham
+genToggle.Parent = panel
+Instance.new("UICorner", genToggle).CornerRadius = UDim.new(0, 6)
+
+local speedToggle = Instance.new("TextButton")
+speedToggle.Size = UDim2.new(1, -16, 0, 26)
+speedToggle.Position = UDim2.new(0, 8, 0, 58)
+speedToggle.BackgroundColor3 = Color3.fromRGB(32, 32, 40)
+speedToggle.BorderSizePixel = 0
+speedToggle.Text = "Speed Up When Alone: OFF"
+speedToggle.TextColor3 = Color3.fromRGB(200, 200, 210)
+speedToggle.TextSize = 12
+speedToggle.Font = Enum.Font.Gotham
+speedToggle.Parent = panel
+Instance.new("UICorner", speedToggle).CornerRadius = UDim.new(0, 6)
+
+local cdLabel = Instance.new("TextLabel")
+cdLabel.Size = UDim2.new(1, -16, 0, 16)
+cdLabel.Position = UDim2.new(0, 8, 0, 88)
+cdLabel.BackgroundTransparency = 1
+cdLabel.Text = "Repair Speed: Medium"
+cdLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+cdLabel.TextSize = 11
+cdLabel.Font = Enum.Font.Gotham
+cdLabel.TextXAlignment = Enum.TextXAlignment.Left
+cdLabel.Parent = panel
+
+local track = Instance.new("Frame")
+track.Size = UDim2.new(1, -16, 0, 6)
+track.Position = UDim2.new(0, 8, 0, 108)
+track.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+track.BorderSizePixel = 0
+track.Parent = panel
+Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+local fill = Instance.new("Frame")
+fill.Size = UDim2.new(0.5, 0, 1, 0)
+fill.BackgroundColor3 = Color3.fromRGB(80, 220, 120)
+fill.BorderSizePixel = 0
+fill.Parent = track
+Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+local knob = Instance.new("Frame")
+knob.Size = UDim2.new(0, 14, 0, 14)
+knob.AnchorPoint = Vector2.new(0.5, 0.5)
+knob.Position = UDim2.new(0.5, 0, 0.5, 0)
+knob.BackgroundColor3 = Color3.fromRGB(230, 230, 240)
+knob.BorderSizePixel = 0
+knob.ZIndex = 2
+knob.Parent = track
+Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+local function speedLabel()
+    local range = CONFIG.MaxCooldown - CONFIG.MinCooldown
+    local p = (CONFIG.MaxCooldown - CONFIG.Cooldown) / range
+    if p >= 0.85 then return "Fast"
+    elseif p >= 0.65 then return "Above Average"
+    elseif p >= 0.45 then return "Medium"
+    elseif p >= 0.25 then return "Below Average"
+    else return "Slow" end
+end
+
+local function updateSlider()
+    local range = CONFIG.MaxCooldown - CONFIG.MinCooldown
+    local speedP = (CONFIG.MaxCooldown - CONFIG.Cooldown) / range
+    fill.Size = UDim2.new(speedP, 0, 1, 0)
+    knob.Position = UDim2.new(speedP, 0, 0.5, 0)
+    cdLabel.Text = string.format("Repair Speed: %s (%.2fs)", speedLabel(), CONFIG.Cooldown)
+end
+
+local draggingSlider = false
+local function setFromX(x)
+    local trackAbs = track.AbsolutePosition.X
+    local trackW = track.AbsoluteSize.X
+    local speedP = math.clamp((x - trackAbs) / trackW, 0, 1)
+    local val = CONFIG.MaxCooldown - speedP * (CONFIG.MaxCooldown - CONFIG.MinCooldown)
+    val = math.floor(val / CONFIG.Step + 0.5) * CONFIG.Step
+    val = math.clamp(val, CONFIG.MinCooldown, CONFIG.MaxCooldown)
+    CONFIG.Cooldown = val
+    updateSlider()
+end
+
+track.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
+        draggingSlider = true
+        setFromX(i.Position.X)
+    end
+end)
+UIS.InputChanged:Connect(function(i)
+    if not draggingSlider then return end
+    if i.UserInputType == Enum.UserInputType.MouseMovement
+    or i.UserInputType == Enum.UserInputType.Touch then
+        setFromX(i.Position.X)
+    end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
+        draggingSlider = false
+    end
+end)
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -16, 0, 16)
+statusLabel.Position = UDim2.new(0, 8, 0, 124)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "idle"
+statusLabel.TextColor3 = Color3.fromRGB(120, 120, 130)
+statusLabel.TextSize = 10
+statusLabel.Font = Enum.Font.Code
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = panel
+
+local warnLabel = Instance.new("TextLabel")
+warnLabel.Size = UDim2.new(1, -16, 0, 16)
+warnLabel.Position = UDim2.new(0, 8, 0, 142)
+warnLabel.BackgroundTransparency = 1
+warnLabel.Text = ""
+warnLabel.TextColor3 = Color3.fromRGB(240, 140, 60)
+warnLabel.TextSize = 10
+warnLabel.Font = Enum.Font.Gotham
+warnLabel.TextXAlignment = Enum.TextXAlignment.Left
+warnLabel.Parent = panel
+
+local function checkWarn()
+    if CONFIG.Cooldown <= 1.75 then
+        warnLabel.Text = "Warning: cooldown may be too fast"
+    else
+        warnLabel.Text = ""
+    end
+end
+
+local function refresh()
+    genToggle.Text = "Auto Gen: " .. (enabled and "ON" or "OFF")
+    genToggle.TextColor3 = enabled
+        and Color3.fromRGB(140, 230, 160)
+        or Color3.fromRGB(200, 200, 210)
+    speedToggle.Text = "Speed Up When Alone: " .. (speedUp and "ON" or "OFF")
+    speedToggle.TextColor3 = speedUp
+        and Color3.fromRGB(140, 230, 160)
+        or Color3.fromRGB(200, 200, 210)
+    pill.BackgroundColor3 = enabled
+        and Color3.fromRGB(20, 45, 25)
+        or Color3.fromRGB(20, 20, 26)
+    ps.Color = enabled
+        and Color3.fromRGB(80, 220, 120)
+        or Color3.fromRGB(60, 60, 75)
+    checkWarn()
+end
+
+genToggle.MouseButton1Click:Connect(function()
+    enabled = not enabled
+    if not enabled then isFixing = false end
+    refresh()
+end)
+
+speedToggle.MouseButton1Click:Connect(function()
+    speedUp = not speedUp
+    refresh()
+end)
+
+pill.MouseButton1Click:Connect(function()
+    panel.Position = pill.Position
+    pill.Visible = false
+    panel.Visible = true
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    pill.Position = panel.Position
+    panel.Visible = false
+    pill.Visible = true
+end)
+
+task.spawn(function()
+    while task.wait(0.3) do
+        if not panel.Visible then continue end
+        if not enabled then statusLabel.Text = "off" continue end
+        local near = isPlayerNear()
+        local cd = (speedUp and not near) and CONFIG.MinCooldown or CONFIG.Cooldown
+        statusLabel.Text = string.format("cd:%.2fs  near:%s  fixing:%s",
+            cd, near and "yes" or "no", isFixing and "yes" or "no")
+    end
+end)
+
+local function makeDrag(handle)
+    local draggingPanel, dragStart, startPos
+    handle.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
+            if handle == panel then
+                local mx, my = i.Position.X, i.Position.Y
+                local tp = track.AbsolutePosition
+                local ts = track.AbsoluteSize
+                if mx >= tp.X and mx <= tp.X + ts.X and my >= tp.Y and my <= tp.Y + ts.Y then
+                    return
+                end
+            end
+            draggingPanel = true
+            dragStart = i.Position
+            startPos = handle.Position
+            i.Changed:Connect(function()
+                if i.UserInputState == Enum.UserInputState.End then draggingPanel = false end
+            end)
+        end
+    end)
+    UIS.InputChanged:Connect(function(i)
+        if not draggingPanel then return end
+        if i.UserInputType == Enum.UserInputType.MouseMovement
+        or i.UserInputType == Enum.UserInputType.Touch then
+            local d = i.Position - dragStart
+            handle.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+end
+
+makeDrag(pill)
+makeDrag(panel)
+
+updateSlider()
+refresh()
